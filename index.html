@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoNugget - Chat Efímero</title>
+    
+    <!-- Tailwind CSS para estilos rápidos y modernos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Librería para generar QRs con diseño personalizado (puntos circulares, logos, etc.) -->
+    <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
+    
+    <!-- Iconos de Phosphor para una interfaz más limpia -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        nugget: {
+                            dark: '#0f172a',    // Slate 900
+                            panel: '#1e293b',   // Slate 800
+                            primary: '#0ea5e9', // Sky 500
+                            accent: '#10b981',  // Emerald 500
+                            text: '#e2e8f0',    // Slate 200
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        /* Estilos base para un aspecto limpio y oscuro */
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        /* Ocultar barra de desplazamiento para un look más "app" */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        /* Animaciones para los mensajes */
+        .msg-enter {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="h-screen w-full flex items-center justify-center p-4 antialiased">
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div id="app-container" class="w-full max-w-4xl h-full max-h-[800px] bg-nugget-panel rounded-2xl shadow-2xl border border-slate-700 flex flex-col md:flex-row overflow-hidden relative">
+        
+        <!-- PANTALLA DE INICIO / CONEXIÓN -->
+        <div id="pantalla-inicio" class="absolute inset-0 z-50 bg-nugget-panel flex flex-col items-center justify-center p-6 text-center transition-opacity duration-500">
+            <h1 class="text-4xl md:text-5xl font-bold text-nugget-primary mb-2 flex items-center justify-center gap-3">
+                <i class="ph ph-hexagon-fill"></i> CryptoNugget
+            </h1>
+            <p class="text-slate-400 max-w-md mb-8">Un protocolo de comunicación efímero, seguro y con mutación de claves (Ratcheting). Nada se guarda, todo se transforma.</p>
+            
+            <div class="flex flex-col sm:flex-row gap-4 w-full max-w-md">
+                <!-- Botón para Iniciar (Alice) -->
+                <button onclick="uiCrearNuevaConexion()" class="flex-1 bg-nugget-primary hover:bg-sky-400 text-white font-semibold py-3 px-6 rounded-xl transition-colors shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2">
+                    <i class="ph ph-plus-circle text-xl"></i> Crear Conexión
+                </button>
+                
+                <!-- Botón para Unirse (Bob) -->
+                <button onclick="uiMostrarPanelUnirse()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-xl transition-colors flex items-center justify-center gap-2 border border-slate-600">
+                    <i class="ph ph-scan text-xl"></i> Unirse a Sesión
+                </button>
+            </div>
+            
+            <!-- Panel oculto para pegar invitación -->
+            <div id="panel-unirse" class="hidden w-full max-w-md mt-6 animate-fade-in">
+                <input type="text" id="input-invitacion" placeholder="Pega el enlace Nugget aquí..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-nugget-primary focus:ring-1 focus:ring-nugget-primary font-mono text-sm mb-3">
+                <button onclick="uiUnirseConEnlace()" class="w-full bg-nugget-accent hover:bg-emerald-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+                    Sincronizar ADN Criptográfico
+                </button>
+            </div>
+        </div>
+
+        <!-- PANTALLA DE COMPARTIR CÓDIGO QR -->
+        <div id="pantalla-qr" class="hidden absolute inset-0 z-40 bg-nugget-panel flex flex-col items-center justify-center p-6 text-center">
+            <h2 class="text-2xl font-bold text-slate-200 mb-2">Sincronización Pendiente</h2>
+            <p class="text-slate-400 mb-6 text-sm max-w-sm">Muestra este código para establecer un canal seguro, o copia la Semilla Maestra para tus proyectos de desarrollo.</p>
+            
+            <!-- Contenedor del QR Generado dinámicamente -->
+            <div id="qr-container" class="bg-white p-2 rounded-2xl shadow-xl mb-6 flex items-center justify-center w-[250px] h-[250px]"></div>
+            
+            <!-- Herramientas para Desarrolladores -->
+            <div class="w-full max-w-md bg-slate-900 rounded-xl p-4 border border-slate-700 text-left">
+                <p class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">Semilla Maestra (Para Devs)</p>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="display-semilla" readonly class="bg-transparent border-none w-full text-nugget-accent font-mono text-sm focus:outline-none" value="...">
+                    <button onclick="copiarSemilla()" class="text-slate-400 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition" title="Copiar Semilla">
+                        <i class="ph ph-copy"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <button onclick="uiOcultarQR()" class="mt-6 text-slate-400 hover:text-white underline text-sm">
+                Entrar al chat (Esperando al receptor...)
+            </button>
+        </div>
+
+        <!-- INTERFAZ PRINCIPAL DEL CHAT -->
+        <div class="hidden md:flex flex-col w-1/3 min-w-[280px] bg-slate-900 border-r border-slate-700 p-4">
+            <div class="flex items-center gap-2 mb-6 text-nugget-primary font-bold text-xl">
+                <i class="ph ph-hexagon-fill"></i> NUGGET
+            </div>
+            
+            <div class="flex-1 overflow-y-auto pr-2">
+                <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Estado de Mutación (ADN)</h3>
+                
+                <!-- Indicadores de Claves -->
+                <div class="bg-slate-800 rounded-lg p-3 mb-3 border border-slate-700">
+                    <p class="text-xs text-slate-400 mb-1">TX Key (Transmisión)</p>
+                    <p id="ui-tx-key" class="font-mono text-xs text-nugget-accent break-all">Esperando...</p>
+                </div>
+                <div class="bg-slate-800 rounded-lg p-3 mb-6 border border-slate-700">
+                    <p class="text-xs text-slate-400 mb-1">RX Key (Recepción)</p>
+                    <p id="ui-rx-key" class="font-mono text-xs text-rose-400 break-all">Esperando...</p>
+                </div>
+
+                <div class="p-3 bg-blue-900/20 border border-blue-500/20 rounded-lg">
+                    <p class="text-xs text-blue-300 leading-relaxed">
+                        <i class="ph ph-info mr-1"></i> Este es el panel técnico. Observa cómo el "ADN" (las claves) cambia por completo después de enviar o recibir un mensaje.
+                    </p>
+                </div>
+            </div>
+            
+            <button onclick="location.reload()" class="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-semibold py-2 px-4 rounded-lg transition-colors border border-rose-500/20 text-sm flex justify-center items-center gap-2">
+                <i class="ph ph-trash"></i> Destruir Sesión
+            </button>
+        </div>
+
+        <div class="flex-1 flex flex-col h-full relative bg-[#0B1120]">
+            <!-- Header del Chat -->
+            <div class="h-16 border-b border-slate-700 flex items-center justify-between px-6 bg-slate-900/50 backdrop-blur-sm z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-2 h-2 rounded-full bg-nugget-accent animate-pulse"></div>
+                    <span class="font-semibold text-slate-200">Canal Cifrado Activo</span>
+                </div>
+                <button onclick="document.getElementById('pantalla-qr').classList.remove('hidden')" class="md:hidden text-slate-400 hover:text-white" title="Mostrar QR">
+                    <i class="ph ph-qr-code text-xl"></i>
+                </button>
+            </div>
+
+            <!-- Área de Mensajes -->
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                <!-- Los mensajes aparecerán aquí -->
+                <div class="text-center py-4">
+                    <span class="bg-slate-800 text-slate-400 text-xs px-3 py-1 rounded-full border border-slate-700">
+                        Sesión efímera iniciada. Cifrado Extremo a Extremo.
+                    </span>
+                </div>
+            </div>
+
+            <!-- Panel de Entrada de Texto -->
+            <div class="p-4 border-t border-slate-700 bg-slate-900">
+                <div class="flex items-end gap-2">
+                    <textarea id="input-mensaje" rows="1" placeholder="Escribe un mensaje secreto..." class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-nugget-primary focus:ring-1 focus:ring-nugget-primary resize-none min-h-[50px] max-h-[120px]"></textarea>
+                    
+                    <button id="btn-enviar" onclick="enviarMensajeUi()" class="bg-nugget-primary hover:bg-sky-400 text-white rounded-xl w-12 h-[50px] flex items-center justify-center shrink-0 transition-colors shadow-lg shadow-sky-500/20">
+                        <i class="ph ph-paper-plane-right text-xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- LOGICA DEL CRYPTONUGGET (JavaScript puro usando WebCrypto API) -->
+    <script>
+        /**
+         * LÓGICA CORE: EL MOTOR CRYPTONUGGET
+         * Escrito usando WebCrypto API nativa (window.crypto.subtle)
+         */
+        const NuggetEngine = {
+            txKey: null, // Clave CryptoKey para cifrar
+            rxKey: null, // Clave CryptoKey para descifrar
+            
+            // Constantes
+            ALGO: "AES-GCM",
+            KEY_LENGTH: 256,
+            TAG_LENGTH: 128, // 16 bytes
+            NONCE_LENGTH: 12,
+
+            /**
+             * Genera una Semilla Maestra aleatoria (256 bits de entropía pura)
+             * Retorna string en Base64
+             */
+            async generarSemilla() {
+                const randomBytes = new Uint8Array(32);
+                window.crypto.getRandomValues(randomBytes);
+                return this.bufferToBase64(randomBytes);
+            },
+
+            /**
+             * Inicializa el estado criptográfico derivando las claves iniciales de la semilla
+             */
+            async inicializar(semillaBase64, esIniciador) {
+                const semillaBytes = this.base64ToBuffer(semillaBase64);
+                
+                // Derivación de claves usando SHA-256 (Simulando HKDF simplificado)
+                const txMaterial = this.concatBuffers(semillaBytes, new TextEncoder().encode("NUGGET_TX"));
+                const rxMaterial = this.concatBuffers(semillaBytes, new TextEncoder().encode("NUGGET_RX"));
+                
+                const hashA = await window.crypto.subtle.digest("SHA-256", txMaterial);
+                const hashB = await window.crypto.subtle.digest("SHA-256", rxMaterial);
+
+                const materialTX = esIniciador ? hashA : hashB;
+                const materialRX = esIniciador ? hashB : hashA;
+
+                // Importar hashes crudos como claves AES-GCM utilizables
+                this.txKey = await this.importKey(materialTX);
+                this.rxKey = await this.importKey(materialRX);
+                
+                console.log("Nugget Inicializado.");
+            },
+
+            /**
+             * Cifra el texto, devuelve paquete en base64 y MUTA la clave.
+             */
+            async cifrar(textoPlano) {
+                if (!this.txKey) throw new Error("Motor no inicializado");
+
+                const encoder = new TextEncoder();
+                const data = encoder.encode(textoPlano);
+                
+                // Generar Nonce aleatorio (12 bytes)
+                const nonce = new Uint8Array(this.NONCE_LENGTH);
+                window.crypto.getRandomValues(nonce);
+
+                // Cifrar con la clave actual
+                const ciphertextBuffer = await window.crypto.subtle.encrypt(
+                    { name: this.ALGO, iv: nonce, tagLength: this.TAG_LENGTH },
+                    this.txKey,
+                    data
+                );
+
+                // Ratcheting: Mutar clave de transmisión
+                await this.mutarClave('tx');
+
+                // Empaquetar: [Nonce(12)] + [Ciphertext+Tag]
+                const paquete = this.concatBuffers(nonce, ciphertextBuffer);
+                return this.bufferToBase64(paquete);
+            },
+
+            /**
+             * Descifra el paquete en base64 y MUTA la clave de recepción.
+             */
+            async descifrar(paqueteBase64) {
+                if (!this.rxKey) throw new Error("Motor no inicializado");
+
+                try {
+                    const paqueteBytes = new Uint8Array(this.base64ToBuffer(paqueteBase64));
+                    
+                    if (paqueteBytes.length < this.NONCE_LENGTH) throw new Error("Paquete inválido");
+
+                    // Extraer Nonce y Datos cifrados
+                    const nonce = paqueteBytes.slice(0, this.NONCE_LENGTH);
+                    const ciphertextBuffer = paqueteBytes.slice(this.NONCE_LENGTH);
+
+                    // Descifrar con la clave actual
+                    const decryptedBuffer = await window.crypto.subtle.decrypt(
+                        { name: this.ALGO, iv: nonce, tagLength: this.TAG_LENGTH },
+                        this.rxKey,
+                        ciphertextBuffer
+                    );
+
+                    // Ratcheting: Mutar clave de recepción (sólo si el descifrado tuvo éxito)
+                    await this.mutarClave('rx');
+
+                    return new TextDecoder().decode(decryptedBuffer);
+                } catch (e) {
+                    console.error("Error descifrando:", e);
+                    throw new Error("Fallo de autenticación o claves desincronizadas.");
+                }
+            },
+
+            /**
+             * El corazón de la mutación: Usa HMAC-SHA256 para evolucionar la clave actual.
+             */
+            async mutarClave(tipo) {
+                const currentKey = tipo === 'tx' ? this.txKey : this.rxKey;
+                
+                // 1. Exportar la clave actual a bytes crudos para hashearla
+                const keyBytes = await window.crypto.subtle.exportKey("raw", currentKey);
+                
+                // 2. Importarla temporalmente como clave HMAC
+                const hmacKey = await window.crypto.subtle.importKey(
+                    "raw", keyBytes,
+                    { name: "HMAC", hash: "SHA-256" },
+                    false, ["sign"]
+                );
+                
+                // 3. Generar la "firma" de una constante. El resultado es nuestra nueva clave cruda (32 bytes).
+                const newKeyMaterial = await window.crypto.subtle.sign(
+                    "HMAC", hmacKey,
+                    new TextEncoder().encode("EVOLUCION_NUGGET")
+                );
+                
+                // 4. Importar el resultado de vuelta como una clave AES-GCM
+                const newAesKey = await this.importKey(newKeyMaterial);
+                
+                // 5. Reemplazar la memoria
+                if (tipo === 'tx') this.txKey = newAesKey;
+                else this.rxKey = newAesKey;
+            },
+
+            // --- Utilidades ---
+            
+            async importKey(keyMaterialBuffer) {
+                return await window.crypto.subtle.importKey(
+                    "raw", keyMaterialBuffer,
+                    { name: this.ALGO },
+                    true, // Extractable para poder mutarla después
+                    ["encrypt", "decrypt"]
+                );
+            },
+            
+            async getVisualADN() {
+                if(!this.txKey || !this.rxKey) return { tx: "...", rx: "..." };
+                const txRaw = await window.crypto.subtle.exportKey("raw", this.txKey);
+                const rxRaw = await window.crypto.subtle.exportKey("raw", this.rxKey);
+                return {
+                    tx: this.bufferToHex(txRaw).substring(0, 16).toUpperCase(),
+                    rx: this.bufferToHex(rxRaw).substring(0, 16).toUpperCase()
+                }
+            },
+
+            bufferToBase64(buffer) {
+                let binary = '';
+                const bytes = new Uint8Array(buffer);
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            },
+            
+            base64ToBuffer(base64) {
+                const binary_string = window.atob(base64);
+                const len = binary_string.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binary_string.charCodeAt(i);
+                }
+                return bytes.buffer;
+            },
+            
+            concatBuffers(buffer1, buffer2) {
+                const tmp = new Uint8Array(buffer1.byteLength + buffer2.byteLength);
+                tmp.set(new Uint8Array(buffer1), 0);
+                tmp.set(new Uint8Array(buffer2), buffer1.byteLength);
+                return tmp.buffer;
+            },
+            
+            bufferToHex(buffer) {
+                return Array.from(new Uint8Array(buffer))
+                    .map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+        };
+
+    </script>
+
+    <!-- LOGICA DE LA INTERFAZ Y MANEJO DEL DOM -->
+    <script>
+        // Variables globales de estado UI
+        let semillaActual = "";
+        let esIniciadorGlobal = false;
+        let simuladorReceptorEnLinea = false;
+
+        // Auto-ajustar textarea de mensajes
+        const tx = document.getElementById("input-mensaje");
+        tx.setAttribute("style", "height:" + (tx.scrollHeight) + "px;overflow-y:hidden;");
+        tx.addEventListener("input", OnInput, false);
+
+        function OnInput() {
+            this.style.height = "auto";
+            this.style.height = (this.scrollHeight) + "px";
+        }
+        
+        // Enviar con "Enter"
+        tx.addEventListener("keypress", function(event) {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                enviarMensajeUi();
+            }
+        });
+
+        // --- FUNCIONES UI ---
+
+        function uiMostrarPanelUnirse() {
+            document.getElementById('panel-unirse').classList.remove('hidden');
+        }
+
+        async function uiCrearNuevaConexion() {
+            // 1. Generar la semilla
+            semillaActual = await NuggetEngine.generarSemilla();
+            esIniciadorGlobal = true;
+            
+            // 2. Inicializar el motor
+            await NuggetEngine.inicializar(semillaActual, esIniciadorGlobal);
+            
+            // 3. Preparar la vista del QR
+            document.getElementById('display-semilla').value = semillaActual;
+            generarQRCodeExcentrico(semillaActual);
+            
+            // 4. Cambiar pantallas
+            document.getElementById('pantalla-inicio').classList.add('opacity-0');
+            setTimeout(() => {
+                document.getElementById('pantalla-inicio').classList.add('hidden');
+                document.getElementById('pantalla-qr').classList.remove('hidden');
+                actualizarADNVisual();
+            }, 500);
+
+            // Simulación: Iniciar un "Bot Receptor" (Para poder probar el chat a solas)
+            iniciarSimuladorBot(semillaActual);
+        }
+
+        async function uiUnirseConEnlace() {
+            let inputStr = document.getElementById('input-invitacion').value.trim();
+            if(!inputStr) return;
+
+            // Extraer semilla (soportamos tanto el formato URL como la semilla pura)
+            semillaActual = inputStr;
+            if(inputStr.includes("semilla=")) {
+                semillaActual = inputStr.split("semilla=")[1];
+            }
+
+            esIniciadorGlobal = false; // El que se une es el receptor
+            
+            try {
+                // Inicializar motor
+                await NuggetEngine.inicializar(semillaActual, esIniciadorGlobal);
+                
+                // Cambiar pantallas directamente al chat
+                document.getElementById('pantalla-inicio').classList.add('hidden');
+                actualizarADNVisual();
+                
+            } catch(e) {
+                console.error(e);
+                alert("La semilla proporcionada parece inválida.");
+            }
+        }
+
+        function uiOcultarQR() {
+            document.getElementById('pantalla-qr').classList.add('hidden');
+        }
+
+        function copiarSemilla() {
+            const copyText = document.getElementById("display-semilla");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999); // Mobile
+            try {
+                document.execCommand('copy');
+                // Feedback visual rápido
+                const btn = event.currentTarget;
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="ph ph-check text-nugget-accent"></i>';
+                setTimeout(() => btn.innerHTML = originalHtml, 2000);
+            } catch (err) {
+                console.error('Error al copiar', err);
+            }
+        }
+
+        // --- SISTEMA DE CÓDIGO QR EXCENTRICO ---
+        function generarQRCodeExcentrico(semilla) {
+            const uriInvitacion = `nugget://conectar?semilla=${semilla}`;
+            
+            // Limpiar contenedor previo si existe
+            document.getElementById("qr-container").innerHTML = "";
+
+            const qrCode = new QRCodeStyling({
+                width: 230,
+                height: 230,
+                type: "canvas", // Cambiado a canvas para mayor compatibilidad con la imagen local
+                data: uriInvitacion,
+                image: "avatar1.png", // Referencia exacta a tu logo
+                dotsOptions: {
+                    color: "#0ea5e9", // Color principal (nugget-primary)
+                    type: "rounded" // Puntos redondeados (excéntricos)
+                },
+                backgroundOptions: {
+                    color: "#ffffff",
+                },
+                imageOptions: {
+                    margin: 5,
+                    imageSize: 0.4 // Ajustado al 40% para que el código QR siga siendo legible
+                },
+                cornersSquareOptions: {
+                    color: "#0f172a", // Color oscuro para las esquinas
+                    type: "extra-rounded"
+                },
+                cornersDotOptions: {
+                    color: "#10b981", // Punto verde en las esquinas
+                    type: "dot"
+                }
+            });
+
+            qrCode.append(document.getElementById("qr-container"));
+        }
+
+        // --- SISTEMA DE MENSAJERÍA ---
+
+        async function enviarMensajeUi() {
+            const input = document.getElementById('input-mensaje');
+            const texto = input.value.trim();
+            
+            if(!texto) return;
+            
+            // Limpiar input y reajustar tamaño
+            input.value = "";
+            input.style.height = "auto";
+
+            try {
+                // 1. Cifrar con el Motor Nugget
+                const paqueteCifrado = await NuggetEngine.cifrar(texto);
+                
+                // 2. Actualizar visualmente el "ADN"
+                actualizarADNVisual();
+
+                // 3. Mostrar el mensaje en UI
+                renderizarMensaje(texto, paqueteCifrado, true);
+
+                // --- Simulación de red (Para demostración) ---
+                if(simuladorReceptorEnLinea) {
+                    enviarAlSimulador(paqueteCifrado);
+                }
+
+            } catch(e) {
+                console.error("Error al cifrar:", e);
+                renderizarMensajeSistema("Error del sistema: " + e.message);
+            }
+        }
+
+        function renderizarMensaje(textoPlano, cifrado, esPropio) {
+            const container = document.getElementById('chat-messages');
+            
+            const alignClass = esPropio ? "self-end" : "self-start";
+            const bgClass = esPropio ? "bg-nugget-primary text-white" : "bg-slate-800 text-slate-200 border border-slate-700";
+            const userIcon = esPropio ? '<i class="ph ph-user-circle"></i> Tú' : '<i class="ph ph-user"></i> Contacto';
+            
+            // Creamos un string corto del cifrado para mostrar el efecto "Matrix"
+            const previewCifrado = cifrado.substring(0, 20) + "...";
+
+            const msgHtml = `
+                <div class="${alignClass} max-w-[85%] msg-enter">
+                    <div class="${bgClass} rounded-2xl p-4 shadow-lg">
+                        <div class="flex items-center gap-2 mb-1 text-xs opacity-70 font-semibold">
+                            ${userIcon}
+                        </div>
+                        <p class="text-sm leading-relaxed whitespace-pre-wrap break-words">${textoPlano}</p>
+                        
+                        <!-- Bloque técnico visible (ADN y Criptograma) -->
+                        <div class="mt-3 pt-2 border-t ${esPropio ? 'border-sky-400' : 'border-slate-600'}">
+                            <p class="text-[10px] font-mono break-all opacity-60 flex items-center gap-1" title="${cifrado}">
+                                <i class="ph ph-lock-key"></i> Payload: ${previewCifrado}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.insertAdjacentHTML('beforeend', msgHtml);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderizarMensajeSistema(texto) {
+            const container = document.getElementById('chat-messages');
+            const msgHtml = `
+                <div class="text-center py-2 msg-enter">
+                    <span class="bg-rose-500/10 text-rose-400 text-xs px-3 py-1 rounded-full border border-rose-500/20">
+                        ${texto}
+                    </span>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', msgHtml);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function actualizarADNVisual() {
+            const adn = await NuggetEngine.getVisualADN();
+            const txEl = document.getElementById('ui-tx-key');
+            const rxEl = document.getElementById('ui-rx-key');
+            
+            // Efecto flash
+            txEl.classList.add('text-white');
+            rxEl.classList.add('text-white');
+            
+            setTimeout(() => {
+                txEl.textContent = adn.tx + "...";
+                rxEl.textContent = adn.rx + "...";
+                txEl.classList.remove('text-white');
+                rxEl.classList.remove('text-white');
+            }, 100);
+        }
+
+        // --- SIMULADOR DE RECEPTOR (Para que el chat no esté vacío) ---
+        // En una app real, esto sería una conexión WebSocket hacia el otro cliente.
+        // Aquí simulamos que Bob está conectado dentro de la misma memoria.
+        const BotMotor = Object.create(NuggetEngine); 
+        
+        async function iniciarSimuladorBot(semilla) {
+            // Inicializar el Bot como NO iniciador (el inverso de nosotros)
+            await BotMotor.inicializar(semilla, false);
+            simuladorReceptorEnLinea = true;
+        }
+
+        async function enviarAlSimulador(paqueteCifradoEnviadoPorMi) {
+            // Simulamos el retraso de red
+            setTimeout(async () => {
+                try {
+                    // El bot descifra el paquete
+                    const textoDescifradoPorBot = await BotMotor.descifrar(paqueteCifradoEnviadoPorMi);
+                    
+                    // El bot decide responder algo genérico
+                    const respuestas = [
+                        "Mensaje recibido y descifrado correctamente.",
+                        "Interesante. ¿Viste cómo mutaron nuestras claves?",
+                        "Confirmado. El ratcheting funciona a la perfección."
+                    ];
+                    const textoRespuesta = respuestas[Math.floor(Math.random() * respuestas.length)];
+                    
+                    // El bot cifra su respuesta
+                    const paqueteDeRespuesta = await BotMotor.cifrar(textoRespuesta);
+
+                    // --- Simular que YO recibo la respuesta del Bot ---
+                    recibirMensajeDeRed(paqueteDeRespuesta);
+
+                } catch (e) {
+                    console.error("Bot falló al descifrar:", e);
+                }
+            }, 1000); // 1 segundo de "lag"
+        }
+
+        // Esta función simula lo que pasaría cuando llega un paquete por WebSocket
+        async function recibirMensajeDeRed(paqueteCifradoBase64) {
+            try {
+                // Desencriptar y mutar
+                const textoPlano = await NuggetEngine.descifrar(paqueteCifradoBase64);
+                
+                // Actualizar UI
+                actualizarADNVisual();
+                renderizarMensaje(textoPlano, paqueteCifradoBase64, false);
+            } catch(e) {
+                renderizarMensajeSistema("Se recibió un paquete corrupto o indescifrable.");
+            }
+        }
+
+    </script>
+</body>
+</html>
